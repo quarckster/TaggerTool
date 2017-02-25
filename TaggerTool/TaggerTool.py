@@ -18,12 +18,12 @@ y_handata = handata.Value
 def get_frames(min_amp=None, max_amp=None):
     if min_amp and max_amp:
         filtered_frames = frames[
-            (frames.plat <= int(max_amp)) & (frames.plat >= int(min_amp))
+            (abs(frames.transition) <= int(max_amp)) & (abs(frames.transition) >= int(min_amp))
         ]
     elif min_amp and not max_amp:
-        filtered_frames = frames[frames.plat >= int(min_amp)]
+        filtered_frames = frames[abs(frames.transition) >= int(min_amp)]
     elif not min_amp and max_amp:
-        filtered_frames = frames[frames.plat <= int(max_amp)]
+        filtered_frames = frames[abs(frames.transition) <= int(max_amp)]
     elif not min_amp and not max_amp:
         filtered_frames = frames
     x_frames = filtered_frames.time
@@ -59,6 +59,7 @@ class Plot(FigureCanvas):
         self.axes = self.fig.add_subplot(111)
         self.axes.plot(x_handata, y_handata, "b")
         self.frames = self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors)
+        self.frames.set_linewidth(5.0)
         self.axes.set_xlabel("timestamps")
         self.axes.set_ylabel("amplitude")
         self.axes.grid(color="grey", linestyle="dotted", linewidth=0.25)
@@ -69,6 +70,7 @@ class Plot(FigureCanvas):
         self.frames.remove()
         self.draw_idle()
         self.frames = self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors)
+        self.frames.set_linewidth(5.0)
 
 
 class Ui_MainWindow(object):
