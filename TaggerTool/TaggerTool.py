@@ -206,7 +206,17 @@ class Ui_MainWindow(object):
     def handleButton(self):
         min_amp = self.min_amp_input.text()
         max_amp = self.max_amp_input.text()
-        self.plot.update_plot(min_amp, max_amp)
+        if max_amp and min_amp and int(max_amp) <= int(min_amp):
+            self.showDialog()
+        else:
+            self.plot.update_plot(min_amp, max_amp)
+
+    def showDialog(self):
+        msg = QtWidgets.QMessageBox(self.centralWidget)
+        msg.setIcon(QtWidgets.QMessageBox.Critical)
+        msg.setText("Minimal amplititude cannot be greater or equal to maximal")
+        msg.setWindowTitle("TaggerTool message")
+        msg.exec_()
 
     def retranslateUi(self, MainWindow):
         _translate = QtCore.QCoreApplication.translate
