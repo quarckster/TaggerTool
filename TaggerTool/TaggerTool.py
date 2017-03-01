@@ -7,6 +7,8 @@ from matplotlib.backends.backend_qt5agg import (
     NavigationToolbar2QT as NavigationToolbar
 )
 from matplotlib.figure import Figure
+from matplotlib.patches import Rectangle
+from matplotlib.collections import LineCollection
 
 
 handata = pandas.read_csv("hanData_1464739200_1464825600.csv")
@@ -41,9 +43,28 @@ def get_frames(min_amp=None, max_amp=None):
     return x_frames, y_frames_min, y_frames_max, transition_colors
 
 
+def get_rectangles(duration, min_amp, max_amp):
+    prev_x_frame = 0
+    prev_color = ""
+    rectangles = []
+    coords = ()
+    for x_frame, y_frame_min, y_frame_max, transition_color in zip(*get_frames(min_amp, max_amp)):
+        width = x_frame - prev_x_frame
+        if transition_color == "g" and prev_color != "g":
+            coords = (x_frame, y_frame_min)
+            prev_x_frame = x_frame
+            height_g = y_frame_max - y_frame_min
+        elif transition_color == "r" and width <= duration and coords:
+            height_r = y_frame_min - y_frame_max
+            height = max(height_r, height_g)
+            rectangles.append(Rectangle(coords, width, height, fill=False, edgecolor="g", linewidth=5))
+        prev_color = transition_color
+    return rectangles
+
+
 class Plot(FigureCanvas):
+
     def __init__(self, parent=None, width=5, height=10, dpi=100):
-        self.frames = None
         self.axes = None
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         super().__init__(self.fig)
@@ -55,22 +76,32 @@ class Plot(FigureCanvas):
         self.fig.tight_layout()
 
     def build_plot(self):
-        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames()
         self.axes = self.fig.add_subplot(111)
         self.axes.plot(x_handata, y_handata, "b")
-        self.frames = self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors)
-        self.frames.set_linewidth(5.0)
         self.axes.set_xlabel("timestamps")
         self.axes.set_ylabel("amplitude")
         self.axes.grid(color="grey", linestyle="dotted", linewidth=0.25)
         self._tight_layout()
 
-    def update_plot(self, min_amp=None, max_amp=None):
-        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames(min_amp, max_amp)
-        self.frames.remove()
+    def _clean_plot(self):
+        for frame in self.axes.findobj(match=LineCollection):
+            frame.remove()
+        for rectangle in self.axes.findobj(match=Rectangle):
+            try:
+                rectangle.remove()
+            except NotImplementedError:
+                pass
         self.draw_idle()
-        self.frames = self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors)
-        self.frames.set_linewidth(5.0)
+
+    def filter_amp(self, min_amp, max_amp):
+        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames(min_amp, max_amp)
+        self._clean_plot()
+        self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors, linewidth=5)
+
+    def draw_pairs(self, min_amp, max_amp, duration):
+        self._clean_plot()
+        for rectangle in get_rectangles(min_amp, max_amp, duration):
+            self.axes.add_patch(rectangle)
 
 
 class Ui_MainWindow(object):
@@ -161,6 +192,25 @@ class Ui_MainWindow(object):
         self.max_amp_input.setObjectName("max_amp_input")
         self.horizontalLayout_3.addWidget(self.max_amp_input)
         self.verticalLayout.addLayout(self.horizontalLayout_3)
+
+        self.horizontalLayout_4 = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_4.setContentsMargins(11, 11, 11, 11)
+        self.horizontalLayout_4.setSpacing(6)
+        self.horizontalLayout_4.setObjectName("horizontalLayout_4")
+        self.duration = QtWidgets.QLabel(self.centralWidget)
+        self.duration.setObjectName("duration")
+        self.horizontalLayout_4.addWidget(self.duration)
+        self.duration_input = QtWidgets.QLineEdit(self.centralWidget)
+        self.duration_input.setValidator(QtGui.QIntValidator())
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.duration_input.sizePolicy().hasHeightForWidth())
+        self.duration_input.setSizePolicy(sizePolicy)
+        self.duration_input.setObjectName("duration_input")
+        self.horizontalLayout_4.addWidget(self.duration_input)
+        self.verticalLayout.addLayout(self.horizontalLayout_4)
+
         self.horizontalLayout_5 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_5.setContentsMargins(11, 11, 11, 11)
         self.horizontalLayout_5.setSpacing(6)
@@ -208,10 +258,13 @@ class Ui_MainWindow(object):
     def handleButton(self):
         min_amp = self.min_amp_input.text()
         max_amp = self.max_amp_input.text()
+        duration = self.duration_input.text()
         if max_amp and min_amp and int(max_amp) <= int(min_amp):
             self.showDialog()
-        else:
-            self.plot.update_plot(min_amp, max_amp)
+        if not duration:
+            self.plot.filter_amp(min_amp, max_amp)
+        elif duration:
+            self.plot.draw_pairs(int(duration), min_amp, max_amp)
 
     def showDialog(self):
         msg = QtWidgets.QMessageBox(self.centralWidget)
@@ -229,6 +282,7 @@ class Ui_MainWindow(object):
         self.label.setText(_translate("MainWindow", "Filter amplitude"))
         self.min_amp.setText(_translate("MainWindow", "Min amp:"))
         self.max_amp.setText(_translate("MainWindow", "Max amp:"))
+        self.duration.setText(_translate("MainWindow", "Duration:"))
         self.submit_button.setText(_translate("MainWindow", "Submit"))
         self.menuFile.setTitle(_translate("MainWindow", "&File"))
         self.menuAbout.setTitle(_translate("MainWindow", "Abo&ut"))
