@@ -43,18 +43,24 @@ def get_frames(min_amp=None, max_amp=None):
     return x_frames, y_frames_min, y_frames_max, transition_colors
 
 
-def get_rectangles(duration, min_amp, max_amp):
+def get_rectangles(min_amp, max_amp, min_duration=None, max_duration=None):
     prev_x_frame = 0
     prev_color = ""
     rectangles = []
     coords = ()
+    if not min_duration and max_duration:
+        expression = lambda width: width <= int(max_duration)
+    elif not max_duration and min_duration:
+        expression = lambda width: width >= int(min_duration)
+    elif max_duration and min_duration:
+        expression = lambda width: int(min_duration) <= width <= int(max_duration)
     for x_frame, y_frame_min, y_frame_max, transition_color in zip(*get_frames(min_amp, max_amp)):
         width = x_frame - prev_x_frame
         if transition_color == "g" and prev_color != "g":
             coords = (x_frame, y_frame_min)
             prev_x_frame = x_frame
             height_g = y_frame_max - y_frame_min
-        elif transition_color == "r" and width <= duration and coords:
+        elif transition_color == "r" and coords and expression(width):
             height_r = y_frame_min - y_frame_max
             height = max(height_r, height_g)
             rectangles.append(Rectangle(coords, width, height, fill=False, edgecolor="g", linewidth=5))
@@ -98,9 +104,9 @@ class Plot(FigureCanvas):
         self._clean_plot()
         self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors, linewidth=5)
 
-    def draw_pairs(self, min_amp, max_amp, duration):
+    def draw_pairs(self, min_duration, max_duration, min_amp, max_amp):
         self._clean_plot()
-        for rectangle in get_rectangles(min_amp, max_amp, duration):
+        for rectangle in get_rectangles(min_amp, max_amp, min_duration, max_duration):
             self.axes.add_patch(rectangle)
 
 
@@ -192,24 +198,41 @@ class Ui_MainWindow(object):
         self.max_amp_input.setObjectName("max_amp_input")
         self.horizontalLayout_3.addWidget(self.max_amp_input)
         self.verticalLayout.addLayout(self.horizontalLayout_3)
-
         self.horizontalLayout_4 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_4.setContentsMargins(11, 11, 11, 11)
         self.horizontalLayout_4.setSpacing(6)
         self.horizontalLayout_4.setObjectName("horizontalLayout_4")
-        self.duration = QtWidgets.QLabel(self.centralWidget)
-        self.duration.setObjectName("duration")
-        self.horizontalLayout_4.addWidget(self.duration)
-        self.duration_input = QtWidgets.QLineEdit(self.centralWidget)
-        self.duration_input.setValidator(QtGui.QIntValidator())
+        self.duration_min = QtWidgets.QLabel(self.centralWidget)
+        self.duration_min.setObjectName("duration_min")
+        self.horizontalLayout_4.addWidget(self.duration_min)
+        self.duration_min_input = QtWidgets.QLineEdit(self.centralWidget)
+        self.duration_min_input.setValidator(QtGui.QIntValidator())
         sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
-        sizePolicy.setHeightForWidth(self.duration_input.sizePolicy().hasHeightForWidth())
-        self.duration_input.setSizePolicy(sizePolicy)
-        self.duration_input.setObjectName("duration_input")
-        self.horizontalLayout_4.addWidget(self.duration_input)
+        sizePolicy.setHeightForWidth(self.duration_min_input.sizePolicy().hasHeightForWidth())
+        self.duration_min_input.setSizePolicy(sizePolicy)
+        self.duration_min_input.setObjectName("duration_min_input")
+        self.horizontalLayout_4.addWidget(self.duration_min_input)
         self.verticalLayout.addLayout(self.horizontalLayout_4)
+
+        self.horizontalLayout_6 = QtWidgets.QHBoxLayout()
+        self.horizontalLayout_6.setContentsMargins(11, 11, 11, 11)
+        self.horizontalLayout_6.setSpacing(6)
+        self.horizontalLayout_6.setObjectName("horizontalLayout_6")
+        self.duration_max = QtWidgets.QLabel(self.centralWidget)
+        self.duration_max.setObjectName("duration_max")
+        self.horizontalLayout_6.addWidget(self.duration_max)
+        self.duration_max_input = QtWidgets.QLineEdit(self.centralWidget)
+        self.duration_max_input.setValidator(QtGui.QIntValidator())
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Minimum, QtWidgets.QSizePolicy.Fixed)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.duration_max_input.sizePolicy().hasHeightForWidth())
+        self.duration_max_input.setSizePolicy(sizePolicy)
+        self.duration_max_input.setObjectName("duration_max_input")
+        self.horizontalLayout_6.addWidget(self.duration_max_input)
+        self.verticalLayout.addLayout(self.horizontalLayout_6)
 
         self.horizontalLayout_5 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_5.setContentsMargins(11, 11, 11, 11)
@@ -258,18 +281,23 @@ class Ui_MainWindow(object):
     def handleButton(self):
         min_amp = self.min_amp_input.text()
         max_amp = self.max_amp_input.text()
-        duration = self.duration_input.text()
+        min_duration = self.duration_min_input.text()
+        max_duration = self.duration_max_input.text()
         if max_amp and min_amp and int(max_amp) <= int(min_amp):
-            self.showDialog()
-        if not duration:
+            self.showDialog("Minimal amplititude cannot be greater or equal to maximal")
+        if min_duration and max_duration and int(min_duration) >= int(max_duration):
+            self.showDialog("Minimal duration cannot be greater or equal to maximal")
+        if (min_duration or max_duration) and not min_amp and not max_amp:
+            self.showDialog("Enter amplitude values")
+        if not min_duration and not max_duration and (min_amp or max_amp):
             self.plot.filter_amp(min_amp, max_amp)
-        elif duration:
-            self.plot.draw_pairs(int(duration), min_amp, max_amp)
+        if (min_duration or max_duration) and (min_amp or max_amp):
+            self.plot.draw_pairs(min_duration, max_duration, min_amp, max_amp)
 
-    def showDialog(self):
+    def showDialog(self, text):
         msg = QtWidgets.QMessageBox(self.centralWidget)
         msg.setIcon(QtWidgets.QMessageBox.Critical)
-        msg.setText("Minimal amplititude cannot be greater or equal to maximal")
+        msg.setText(text)
         msg.setWindowTitle("TaggerTool message")
         msg.exec_()
 
@@ -282,7 +310,8 @@ class Ui_MainWindow(object):
         self.label.setText(_translate("MainWindow", "Filter amplitude"))
         self.min_amp.setText(_translate("MainWindow", "Min amp:"))
         self.max_amp.setText(_translate("MainWindow", "Max amp:"))
-        self.duration.setText(_translate("MainWindow", "Duration:"))
+        self.duration_min.setText(_translate("MainWindow", "Min duration:"))
+        self.duration_max.setText(_translate("MainWindow", "Max duration:"))
         self.submit_button.setText(_translate("MainWindow", "Submit"))
         self.menuFile.setTitle(_translate("MainWindow", "&File"))
         self.menuAbout.setTitle(_translate("MainWindow", "Abo&ut"))
