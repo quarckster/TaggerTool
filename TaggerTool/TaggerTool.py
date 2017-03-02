@@ -1,5 +1,7 @@
 # -*- coding: utf-8 -*-
+import os
 import sys
+import csv
 import pandas
 from PyQt5 import QtCore, QtWidgets, QtGui
 from matplotlib.backends.backend_qt5agg import (
@@ -46,8 +48,8 @@ def get_frames(min_amp=None, max_amp=None):
 def get_rectangles(min_amp, max_amp, min_duration=None, max_duration=None):
     prev_x_frame = 0
     prev_color = ""
-    rectangles = []
     coords = ()
+    rectangles = []
     if not min_duration and max_duration:
         expression = lambda width: width <= int(max_duration)
     elif not max_duration and min_duration:
@@ -63,23 +65,53 @@ def get_rectangles(min_amp, max_amp, min_duration=None, max_duration=None):
         elif transition_color == "r" and coords and expression(width):
             height_r = y_frame_min - y_frame_max
             height = max(height_r, height_g)
-            rectangles.append(Rectangle(coords, width, height, fill=False, edgecolor="g", linewidth=5))
+            rectangles.append(Rectangle(coords, width, height, fill=False, edgecolor="g", linewidth=5, picker=5))
         prev_color = transition_color
     return rectangles
+
+
+def write_csv(rectangles, filename):
+    fieldnames = ["start_time", "end_time", "amplitude", "duration"]
+    with open(filename, "w") as fileobj:
+        spamwriter = csv.DictWriter(fileobj, fieldnames=fieldnames)
+        spamwriter.writeheader()
+        for rectangle in rectangles:
+            spamwriter.writerow({
+                "start_time": rectangle.get_x(),
+                "end_time": rectangle.get_x() + rectangle.get_width(),
+                "amplitude": rectangle.get_y() + rectangle.get_height(),
+                "duration": rectangle.get_width()
+            })
 
 
 class Plot(FigureCanvas):
 
     def __init__(self, parent=None, width=5, height=10, dpi=100):
         self.axes = None
+        self.pairs = []
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         super().__init__(self.fig)
         self.mpl_connect("resize_event", self._tight_layout)
+        self.mpl_connect("pick_event", self._onpick)
         self.build_plot()
         self.setParent(parent)
 
+    def get_green_rectangles(self):
+        return [rectangle for rectangle in self.pairs if rectangle.get_ec() == (0.0, 0.5, 0.0, 1)]
+
     def _tight_layout(self, *args, **kwargs):
         self.fig.tight_layout()
+
+    def _toggle_color(self, rectangle):
+        if rectangle.get_ec() == (0.0, 0.5, 0.0, 1):
+            rectangle.set_edgecolor("r")
+        elif rectangle.get_ec() == (1.0, 0.0, 0.0, 1):
+            rectangle.set_edgecolor("g")
+
+    def _onpick(self, event):
+        rectangle = event.artist
+        self._toggle_color(rectangle)
+        event.canvas.draw_idle()
 
     def build_plot(self):
         self.axes = self.fig.add_subplot(111)
@@ -92,11 +124,8 @@ class Plot(FigureCanvas):
     def _clean_plot(self):
         for frame in self.axes.findobj(match=LineCollection):
             frame.remove()
-        for rectangle in self.axes.findobj(match=Rectangle):
-            try:
-                rectangle.remove()
-            except NotImplementedError:
-                pass
+        for rectangle in self.pairs:
+            rectangle.remove()
         self.draw_idle()
 
     def filter_amp(self, min_amp, max_amp):
@@ -106,11 +135,13 @@ class Plot(FigureCanvas):
 
     def draw_pairs(self, min_duration, max_duration, min_amp, max_amp):
         self._clean_plot()
-        for rectangle in get_rectangles(min_amp, max_amp, min_duration, max_duration):
+        self.pairs = get_rectangles(min_amp, max_amp, min_duration, max_duration)
+        for rectangle in self.pairs:
             self.axes.add_patch(rectangle)
 
 
 class Ui_MainWindow(object):
+
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
         MainWindow.resize(800, 600)
@@ -136,6 +167,7 @@ class Ui_MainWindow(object):
         self.horizontalLayout.addItem(spacerItem)
         self.save_button = QtWidgets.QPushButton(self.centralWidget)
         self.save_button.setObjectName("save_button")
+        self.save_button.clicked.connect(self.saveData)
         self.horizontalLayout.addWidget(self.save_button)
         spacerItem1 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem1)
@@ -215,7 +247,6 @@ class Ui_MainWindow(object):
         self.duration_min_input.setObjectName("duration_min_input")
         self.horizontalLayout_4.addWidget(self.duration_min_input)
         self.verticalLayout.addLayout(self.horizontalLayout_4)
-
         self.horizontalLayout_6 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_6.setContentsMargins(11, 11, 11, 11)
         self.horizontalLayout_6.setSpacing(6)
@@ -233,7 +264,6 @@ class Ui_MainWindow(object):
         self.duration_max_input.setObjectName("duration_max_input")
         self.horizontalLayout_6.addWidget(self.duration_max_input)
         self.verticalLayout.addLayout(self.horizontalLayout_6)
-
         self.horizontalLayout_5 = QtWidgets.QHBoxLayout()
         self.horizontalLayout_5.setContentsMargins(11, 11, 11, 11)
         self.horizontalLayout_5.setSpacing(6)
@@ -274,7 +304,6 @@ class Ui_MainWindow(object):
         self.plot_toolbar = NavigationToolbar(self.plot, MainWindow)
         self.plot_toolbar.setObjectName("Matplolib toolbar")
         MainWindow.addToolBar(self.plot_toolbar)
-
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
@@ -293,6 +322,16 @@ class Ui_MainWindow(object):
             self.plot.filter_amp(min_amp, max_amp)
         if (min_duration or max_duration) and (min_amp or max_amp):
             self.plot.draw_pairs(min_duration, max_duration, min_amp, max_amp)
+
+    def saveData(self):
+        rectangles = self.plot.get_green_rectangles()
+        if not rectangles:
+            self.showDialog("There is nothing to save")
+        else:
+            home = os.path.expanduser("~")
+            fname = QtWidgets.QFileDialog.getSaveFileName(self, "Save the pairs", home, "CSV file (*.csv)")[0]
+            if fname:
+                write_csv(rectangles, fname)
 
     def showDialog(self, text):
         msg = QtWidgets.QMessageBox(self.centralWidget)
