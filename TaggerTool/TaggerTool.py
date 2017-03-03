@@ -83,9 +83,11 @@ def get_rectangles(frames, min_amp, max_amp, min_duration=None, max_duration=Non
 
 def write_csv(rectangles, filename):
     fieldnames = ["start_time", "end_time", "amplitude", "duration"]
+    exist = os.path.isfile(filename)
     with open(filename, "a") as fileobj:
         spamwriter = csv.DictWriter(fileobj, fieldnames=fieldnames)
-        spamwriter.writeheader()
+        if not exist:
+            spamwriter.writeheader()
         for rectangle in rectangles:
             spamwriter.writerow({
                 "start_time": rectangle.get_x(),
@@ -129,10 +131,12 @@ class Plot(FigureCanvas):
         self.axes.cla()
         self.draw_idle()
         hanData, self.frames = get_raw_data(user, day)
+        self.frames.time = self.frames.time - hanData.Timestamp[0]
+        hanData.Timestamp = hanData.Timestamp - hanData.Timestamp[0]
         self.axes.plot(hanData.Timestamp, hanData.Value, "b")
-        self.axes.set_xlabel("timestamps")
-        self.axes.set_ylabel("amplitude")
-        self.axes.grid(color="grey", linestyle="dotted", linewidth=0.25)
+        self.axes.set_xlabel("timestamps, s")
+        self.axes.set_ylabel("amplitude, W")
+        self.axes.grid(color="grey", which="both", linestyle="dotted", linewidth=0.25)
         self._tight_layout()
 
     def _clean_plot(self):
