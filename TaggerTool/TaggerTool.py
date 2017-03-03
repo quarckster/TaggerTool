@@ -3,6 +3,8 @@ import os
 import sys
 import csv
 import pandas
+from pathlib import Path
+from gzip import GzipFile
 from PyQt5 import QtCore, QtWidgets, QtGui
 from matplotlib.backends.backend_qt5agg import (
     FigureCanvasQTAgg as FigureCanvas,
@@ -13,13 +15,22 @@ from matplotlib.patches import Rectangle
 from matplotlib.collections import LineCollection
 
 
-handata = pandas.read_csv("hanData_1464739200_1464825600.csv")
-frames = pandas.read_csv("frames_1464739200_1464825600.csv")
-x_handata = handata.Timestamp
-y_handata = handata.Value
+p = Path("CachedData")
 
 
-def get_frames(min_amp=None, max_amp=None):
+def get_users():
+    return [user.name for user in p.iterdir() if user.is_dir()]
+
+def get_raw_data(user, day=0):
+    csv_dir = p.joinpath(user)
+    frames_files = sorted(list(csv_dir.glob("*frame*")))
+    handata_files = sorted(list(csv_dir.glob("*hanData*")))
+    with GzipFile(str(handata_files[day])) as handata, GzipFile(str(frames_files[day])) as frames:
+        handata_df, frames_df = pandas.read_csv(handata), pandas.read_csv(frames)
+    return handata_df, frames_df
+
+
+def get_frames(frames, min_amp=None, max_amp=None):
     if min_amp and max_amp:
         filtered_frames = frames[
             (abs(frames.transition) <= int(max_amp)) & (abs(frames.transition) >= int(min_amp))
@@ -45,7 +56,7 @@ def get_frames(min_amp=None, max_amp=None):
     return x_frames, y_frames_min, y_frames_max, transition_colors
 
 
-def get_rectangles(min_amp, max_amp, min_duration=None, max_duration=None):
+def get_rectangles(frames, min_amp, max_amp, min_duration=None, max_duration=None):
     prev_x_frame = 0
     prev_color = ""
     coords = ()
@@ -56,7 +67,7 @@ def get_rectangles(min_amp, max_amp, min_duration=None, max_duration=None):
         expression = lambda width: width >= int(min_duration)
     elif max_duration and min_duration:
         expression = lambda width: int(min_duration) <= width <= int(max_duration)
-    for x_frame, y_frame_min, y_frame_max, transition_color in zip(*get_frames(min_amp, max_amp)):
+    for x_frame, y_frame_min, y_frame_max, transition_color in zip(*get_frames(frames, min_amp, max_amp)):
         width = x_frame - prev_x_frame
         if transition_color == "g" and prev_color != "g":
             coords = (x_frame, y_frame_min)
@@ -87,13 +98,13 @@ def write_csv(rectangles, filename):
 class Plot(FigureCanvas):
 
     def __init__(self, parent=None, width=5, height=10, dpi=100):
-        self.axes = None
+        self.frames = None
         self.pairs = []
         self.fig = Figure(figsize=(width, height), dpi=dpi)
+        self.axes = self.fig.add_subplot(111)
         super().__init__(self.fig)
         self.mpl_connect("resize_event", self._tight_layout)
         self.mpl_connect("pick_event", self._onpick)
-        self.build_plot()
         self.setParent(parent)
 
     def get_green_rectangles(self):
@@ -113,9 +124,12 @@ class Plot(FigureCanvas):
         self._toggle_color(rectangle)
         event.canvas.draw_idle()
 
-    def build_plot(self):
-        self.axes = self.fig.add_subplot(111)
-        self.axes.plot(x_handata, y_handata, "b")
+    def build_plot(self, user, day=0):
+        self.pairs = []
+        self.axes.cla()
+        self.draw_idle()
+        hanData, self.frames = get_raw_data(user, day)
+        self.axes.plot(hanData.Timestamp, hanData.Value, "b")
         self.axes.set_xlabel("timestamps")
         self.axes.set_ylabel("amplitude")
         self.axes.grid(color="grey", linestyle="dotted", linewidth=0.25)
@@ -129,13 +143,13 @@ class Plot(FigureCanvas):
         self.draw_idle()
 
     def filter_amp(self, min_amp, max_amp):
-        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames(min_amp, max_amp)
+        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames(self.frames, min_amp, max_amp)
         self._clean_plot()
         self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors, linewidth=5)
 
     def draw_pairs(self, min_duration, max_duration, min_amp, max_amp):
         self._clean_plot()
-        self.pairs = get_rectangles(min_amp, max_amp, min_duration, max_duration)
+        self.pairs = get_rectangles(self.frames, min_amp, max_amp, min_duration, max_duration)
         for rectangle in self.pairs:
             self.axes.add_patch(rectangle)
 
@@ -161,6 +175,8 @@ class Ui_MainWindow(object):
         self.horizontalLayout.setSpacing(6)
         self.horizontalLayout.setObjectName("horizontalLayout")
         self.prev_day_button = QtWidgets.QPushButton(self.centralWidget)
+        self.prev_day_button.setEnabled(False)
+        self.prev_day_button.clicked.connect(self.handlePrevDayButton)
         self.prev_day_button.setObjectName("prev_day_button")
         self.horizontalLayout.addWidget(self.prev_day_button)
         spacerItem = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
@@ -172,6 +188,8 @@ class Ui_MainWindow(object):
         spacerItem1 = QtWidgets.QSpacerItem(40, 20, QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Minimum)
         self.horizontalLayout.addItem(spacerItem1)
         self.next_day_button = QtWidgets.QPushButton(self.centralWidget)
+        self.next_day_button.setEnabled(False)
+        self.next_day_button.clicked.connect(self.handleNextDayButton)
         self.next_day_button.setObjectName("next_day_button")
         self.horizontalLayout.addWidget(self.next_day_button)
         self.gridLayout.addLayout(self.horizontalLayout, 1, 0, 1, 1)
@@ -187,6 +205,23 @@ class Ui_MainWindow(object):
         self.verticalLayout.setContentsMargins(11, 11, 11, 11)
         self.verticalLayout.setSpacing(6)
         self.verticalLayout.setObjectName("verticalLayout")
+
+        self.user_label = QtWidgets.QLabel(self.centralWidget)
+        self.user_label.setAlignment(QtCore.Qt.AlignCenter)
+        self.user_label.setObjectName("user_label")
+        self.verticalLayout.addWidget(self.user_label)
+
+        self.users_dropdown = QtWidgets.QComboBox(self.centralWidget)
+        self.users_dropdown.addItems(get_users())
+        self.users_dropdown.currentIndexChanged.connect(self.userChanged)
+        sizePolicy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Preferred, QtWidgets.QSizePolicy.Preferred)
+        sizePolicy.setHorizontalStretch(0)
+        sizePolicy.setVerticalStretch(0)
+        sizePolicy.setHeightForWidth(self.users_dropdown.sizePolicy().hasHeightForWidth())
+        self.users_dropdown.setSizePolicy(sizePolicy)
+        self.users_dropdown.setObjectName("users_dropdown")
+        self.verticalLayout.addWidget(self.users_dropdown)
+
         self.label = QtWidgets.QLabel(self.centralWidget)
         self.label.setAlignment(QtCore.Qt.AlignCenter)
         self.label.setObjectName("label")
@@ -307,6 +342,31 @@ class Ui_MainWindow(object):
         self.retranslateUi(MainWindow)
         QtCore.QMetaObject.connectSlotsByName(MainWindow)
 
+    def userChanged(self):
+        user = self.users_dropdown.currentText()
+        csv_dir = p.joinpath(user)
+        self.days_number = len(list(csv_dir.glob("*hanData*")))
+        self.current_day = 0
+        if self.days_number > 1:
+            self.next_day_button.setEnabled(True)
+        else:
+            self.next_day_button.setEnabled(False)
+        self.plot.build_plot(user)
+
+    def handlePrevDayButton(self):
+        self.current_day -= 1
+        self.plot.build_plot(self.users_dropdown.currentText(), day=self.current_day)
+        self.next_day_button.setEnabled(True)
+        if self.current_day == 0:
+            self.prev_day_button.setEnabled(False)
+
+    def handleNextDayButton(self):
+        self.current_day += 1
+        self.plot.build_plot(self.users_dropdown.currentText(), day=self.current_day)
+        self.prev_day_button.setEnabled(True)
+        if self.current_day == self.days_number - 1:
+            self.next_day_button.setEnabled(False)
+
     def handleButton(self):
         min_amp = self.min_amp_input.text()
         max_amp = self.max_amp_input.text()
@@ -346,7 +406,8 @@ class Ui_MainWindow(object):
         self.prev_day_button.setText(_translate("MainWindow", "Previous day"))
         self.save_button.setText(_translate("MainWindow", "Save"))
         self.next_day_button.setText(_translate("MainWindow", "Next day"))
-        self.label.setText(_translate("MainWindow", "Filter amplitude"))
+        self.user_label.setText(_translate("MainWindow", "Users"))
+        self.label.setText(_translate("MainWindow", "Filter pairs"))
         self.min_amp.setText(_translate("MainWindow", "Min amp:"))
         self.max_amp.setText(_translate("MainWindow", "Max amp:"))
         self.duration_min.setText(_translate("MainWindow", "Min duration:"))
@@ -362,6 +423,13 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setupUi(self)
+        user = self.users_dropdown.currentText()
+        self.plot.build_plot(user)
+        csv_dir = p.joinpath(user)
+        self.current_day = 0
+        self.days_number = len(list(csv_dir.glob("*hanData*")))
+        if self.days_number > 1:
+            self.next_day_button.setEnabled(True)
 
 
 if __name__ == "__main__":
