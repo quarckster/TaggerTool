@@ -83,7 +83,7 @@ def get_rectangles(frames, min_amp, max_amp, min_duration=None, max_duration=Non
 
 def write_csv(rectangles, filename):
     fieldnames = ["start_time", "end_time", "amplitude", "duration"]
-    with open(filename, "w") as fileobj:
+    with open(filename, "a") as fileobj:
         spamwriter = csv.DictWriter(fileobj, fieldnames=fieldnames)
         spamwriter.writeheader()
         for rectangle in rectangles:
@@ -388,10 +388,8 @@ class Ui_MainWindow(object):
         if not rectangles:
             self.showDialog("There is nothing to save")
         else:
-            home = os.path.expanduser("~")
-            fname = QtWidgets.QFileDialog.getSaveFileName(self, "Save the pairs", home, "CSV file (*.csv)")[0]
-            if fname:
-                write_csv(rectangles, fname)
+            filename = "{}_output.csv".format(self.users_dropdown.currentText())
+            write_csv(rectangles, filename)
 
     def showDialog(self, text):
         msg = QtWidgets.QMessageBox(self.centralWidget)
