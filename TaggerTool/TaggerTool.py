@@ -21,6 +21,7 @@ p = Path("CachedData")
 def get_users():
     return [user.name for user in p.iterdir() if user.is_dir()]
 
+
 def get_raw_data(user, day=0):
     csv_dir = p.joinpath(user)
     frames_files = sorted(list(csv_dir.glob("*frame*")))
@@ -81,7 +82,7 @@ def get_rectangles(frames, min_amp, max_amp, min_duration=None, max_duration=Non
     return rectangles
 
 
-def write_csv(rectangles, filename):
+def write_csv(rectangles, filename, start_timestamp):
     fieldnames = ["start_time", "end_time", "amplitude", "duration"]
     exist = os.path.isfile(filename)
     with open(filename, "a") as fileobj:
@@ -90,8 +91,8 @@ def write_csv(rectangles, filename):
             spamwriter.writeheader()
         for rectangle in rectangles:
             spamwriter.writerow({
-                "start_time": rectangle.get_x(),
-                "end_time": rectangle.get_x() + rectangle.get_width(),
+                "start_time": rectangle.get_x() + start_timestamp,
+                "end_time": rectangle.get_x() + rectangle.get_width() + start_timestamp,
                 "amplitude": rectangle.get_y() + rectangle.get_height(),
                 "duration": rectangle.get_width()
             })
@@ -101,6 +102,7 @@ class Plot(FigureCanvas):
 
     def __init__(self, parent=None, width=5, height=10, dpi=100):
         self.frames = None
+        self.start_timestamp = None
         self.pairs = []
         self.fig = Figure(figsize=(width, height), dpi=dpi)
         self.axes = self.fig.add_subplot(111)
@@ -131,6 +133,7 @@ class Plot(FigureCanvas):
         self.axes.cla()
         self.draw_idle()
         hanData, self.frames = get_raw_data(user, day)
+        self.start_timestamp = hanData.Timestamp[0]
         self.frames.time = self.frames.time - hanData.Timestamp[0]
         hanData.Timestamp = hanData.Timestamp - hanData.Timestamp[0]
         self.axes.plot(hanData.Timestamp, hanData.Value, "b")
@@ -147,9 +150,9 @@ class Plot(FigureCanvas):
         self.draw_idle()
 
     def filter_amp(self, min_amp, max_amp):
-        x_frames, y_frames_min, y_frames_max, transisiton_colors = get_frames(self.frames, min_amp, max_amp)
+        x_frames, y_frames_min, y_frames_max, transiton_colors = get_frames(self.frames, min_amp, max_amp)
         self._clean_plot()
-        self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transisiton_colors, linewidth=5)
+        self.axes.vlines(x_frames, y_frames_min, y_frames_max, colors=transiton_colors, linewidth=5)
 
     def draw_pairs(self, min_duration, max_duration, min_amp, max_amp):
         self._clean_plot()
@@ -162,8 +165,8 @@ class Ui_MainWindow(object):
 
     def setupUi(self, MainWindow):
         MainWindow.setObjectName("MainWindow")
-        MainWindow.resize(800, 600)
-        MainWindow.setMinimumSize(QtCore.QSize(800, 600))
+        MainWindow.resize(1600 , 900)
+        MainWindow.setMinimumSize(QtCore.QSize(1600, 900))
         self.centralWidget = QtWidgets.QWidget(MainWindow)
         self.centralWidget.setObjectName("centralWidget")
         self.gridLayout_2 = QtWidgets.QGridLayout(self.centralWidget)
@@ -393,7 +396,7 @@ class Ui_MainWindow(object):
             self.showDialog("There is nothing to save")
         else:
             filename = "{}_output.csv".format(self.users_dropdown.currentText())
-            write_csv(rectangles, filename)
+            write_csv(rectangles, filename, self.plot.start_timestamp)
 
     def showDialog(self, text):
         msg = QtWidgets.QMessageBox(self.centralWidget)
